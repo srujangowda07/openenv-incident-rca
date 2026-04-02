@@ -1,0 +1,10 @@
+{
+  "score": 1.0,
+  "breakdown": {
+    "root_cause_service": 0.5,
+    "cause_type": 0.3,
+    "tool_evidence": 0.2,
+    "penalties": 0.0
+  },
+  "feedback": "correct"
+}

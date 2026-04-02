@@ -1,0 +1,208 @@
+# openenv.yaml — OpenEnv Spec Compliance File
+# Validated with: python validate.py
+
+name: incident-rca-env
+version: "1.0.0"
+description: >
+  Reinforcement learning environment for training AI agents to perform
+  incident response and root cause analysis on production microservice systems.
+  Agents diagnose cascading failures from logs, metrics, traces, and service maps.
+
+author: "Your Name"
+tags:
+  - openenv
+  - devops
+  - incident-response
+  - root-cause-analysis
+  - agentic-rl
+  - real-world
+
+#API Compliance
+api:
+  reset: "Returns ObservationModel with initial incident state"
+  step: "Accepts ActionModel, returns (ObservationModel, RewardModel, bool, InfoModel)"
+  state: "Returns full internal state dict for debugging"
+
+# Observation Space
+observation_space:
+  type: structured_dict
+  fields:
+    step:
+      type: int
+      description: "Current step number (0-indexed)"
+    max_steps:
+      type: int
+      description: "Maximum steps allowed for this task"
+    task_id:
+      type: str
+      description: "Task identifier (e.g. easy_001)"
+    task_description:
+      type: str
+      description: "Full incident brief for the agent"
+    alerts:
+      type: array
+      items: dict
+      description: "Active PagerDuty-style alerts with id, service, severity, message, time"
+    tool_result:
+      type: dict
+      nullable: true
+      description: "Result of the last tool call (null if no tool called yet)"
+    history:
+      type: array
+      items: dict
+      description: "Last 5 action logs with action, parameters, result, reward"
+    available_actions:
+      type: array
+      items: str
+      description: "Valid action_type strings the agent can use"
+    done:
+      type: bool
+      description: "Whether the episode has ended"
+
+# Action Space
+action_space:
+  type: structured_dict
+  fields:
+    action_type:
+      type: str
+      enum:
+        - grep_logs
+        - query_metrics
+        - fetch_traces
+        - query_dependencies
+        - submit_diagnosis
+    parameters:
+      type: dict
+      description: "Action-specific parameters (see per-action schemas below)"
+
+action_schemas:
+  grep_logs:
+    service:
+      type: str
+      required: true
+      description: "Service name to search logs for"
+    keyword:
+      type: str
+      required: false
+      description: "Keyword to filter log messages (empty = return all logs for service)"
+
+  query_metrics:
+    service:
+      type: str
+      required: true
+      description: "Service name to query metrics for"
+    metric_name:
+      type: str
+      required: true
+      description: "Metric name to retrieve (e.g. cpu_usage, memory_usage_mb, error_rate)"
+
+  fetch_traces:
+    request_id:
+      type: str
+      required: true
+      description: "Trace/request ID to retrieve (visible in alerts or tool results)"
+
+  query_dependencies:
+    service:
+      type: str
+      required: true
+      description: "Service name to look up upstream and downstream dependencies"
+
+  submit_diagnosis:
+    root_cause_service:
+      type: str
+      required: true
+      description: "Service identified as the root cause"
+    cause_type:
+      type: str
+      required: true
+      description: "Short description of the failure mode (e.g. connection pool exhausted)"
+
+# Reward Space 
+reward_space:
+  type: float
+  range: [-0.60, 1.00]
+  shape: partial_multi_step
+  description: >
+    Step-wise deterministic rewards. Intermediate rewards guide the agent
+    toward the correct investigation path. Terminal reward is given only at
+    submit_diagnosis.
+  reward_table:
+    submit_diagnosis_perfect: +1.00   # exact service + cause match
+    submit_diagnosis_partial: +0.50   # correct service, wrong cause
+    submit_diagnosis_wrong:   -0.50   # wrong service
+    grep_logs_relevant:       +0.05   # service is in the failure cascade
+    query_metrics_relevant:   +0.05   # service is in the failure cascade
+    fetch_traces_implicates:  +0.10   # trace implicates the root cause service
+    query_dependencies_toward: +0.05  # queried service is in the failure cascade
+    repeated_action:          -0.10   # exact same tool call made twice
+    invalid_action:           -0.10   # missing required parameter or unknown service
+    step_penalty:             -0.01   # applied every step (efficiency incentive)
+
+# Tasks 
+tasks:
+  - id: easy_001
+    name: "DB Connection Pool Exhaustion"
+    difficulty: easy
+    max_steps: 15
+    services: 3
+    description: "api-gateway 502 errors caused by postgres connection pool exhaustion"
+
+  - id: easy_002
+    name: "Payment Service OOMKilled"
+    difficulty: easy
+    max_steps: 15
+    services: 2
+    description: "payment-service pods crashing due to memory leak in unbounded cache"
+
+  - id: easy_003
+    name: "Disk Full — Logging Service"
+    difficulty: easy
+    max_steps: 15
+    services: 1
+    description: "logging-service down because disk full and log rotation disabled"
+
+  - id: medium_001
+    name: "Slow Query Cascade — Missing Index"
+    difficulty: medium
+    max_steps: 25
+    services: 7
+    description: "Schema migration dropped DB index causing 2-service cascade"
+
+  - id: hard_001
+    name: "Redis Cluster Split-Brain"
+    difficulty: hard
+    max_steps: 40
+    services: 10
+    description: "Network partition caused Redis split-brain affecting 6 dependent services"
+
+# Grader 
+grader:
+  type: deterministic
+  score_range: [0.0, 1.0]
+  pass_threshold: 0.60
+  dimensions:
+    - name: root_cause_service
+      weight: 0.50
+      description: "Exact match on root cause service name"
+    - name: cause_type
+      weight: 0.30
+      description: "Exact match on cause type (only awarded if service is also correct)"
+    - name: tool_evidence
+      weight: 0.20
+      description: "Agent queried root cause service with at least one tool before diagnosing"
+    - name: penalties
+      weight: variable
+      description: "Deductions for invalid actions (-0.10 each) and wrong diagnosis (-0.20)"
+
+# Non-functional 
+deployment:
+  containerized: true
+  dockerfile: Dockerfile
+  huggingface_space: true
+  cpu_only: true
+  memory_limit: "2GB"
+
+documentation:
+  readme: README.md
+  baseline_scores: baseline_scores.json
