@@ -1,25 +1,3 @@
-"""
-inference.py — Baseline agent runner for incident-rca-env.
-
-Key fixes over the original:
-  1. _parse_action no longer silently falls back to a hardcoded action when
-     JSON parsing fails.  Instead it raises a ParseError with a descriptive
-     message.  The outer loop catches this and injects an explicit error hint
-     into the conversation so the LLM can self-correct.
-
-  2. The error injection path is now always reachable.  Previously, swallowed
-     exceptions inside the inner try-block meant the outer except never fired
-     and the "Previous error: …" message was never sent.
-
-  3. A fallback action is only used when the LLM call itself fails (network /
-     rate-limit), NOT when the LLM returned a well-formed response that we
-     failed to parse.  Parsing failures surface as model feedback, not silent
-     garbage steps that pollute the action history and grading.
-
-  4. The fallback action is counted as an invalid action via a guard flag so
-     the grader's penalty accounting remains accurate.
-"""
-
 from __future__ import annotations
 import json
 import os
@@ -35,8 +13,8 @@ from environment.env import IncidentRCAEnv, ActionModel
 from graders.grader import IncidentRCAGrader
 from tasks.task_definitions import get_task
 
-API_BASE_URL = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
-MODEL_NAME   = os.getenv("MODEL_NAME", "gpt-4o")
+API_BASE_URL = os.getenv("API_BASE_URL", "https://integrate.api.nvidia.com/v1")
+MODEL_NAME   = os.getenv("MODEL_NAME", "meta/llama-3.3-70b-instruct")
 HF_TOKEN     = os.getenv("HF_TOKEN", "")
 TASK_ID      = os.getenv("TASK_ID", "easy_001")
 SEED         = int(os.getenv("SEED", "42"))
@@ -44,7 +22,6 @@ ENV_NAME     = "incident-rca-env"
 
 SYSTEM_PROMPT = """You are an expert Site Reliability Engineer performing incident response.
 Diagnose the root cause service and failure type, then submit your diagnosis.
-Think step by step before deciding action.
 
 Allowed cause_type values:
 - "connection pool exhausted"
@@ -56,51 +33,51 @@ Allowed cause_type values:
 Available actions — respond ONLY with valid JSON:
 
 grep_logs:
-  {"action_type": "grep_logs", "parameters": {"service": "<name>", "keyword": "<term>"}}
+{"action_type": "grep_logs", "parameters": {"service": "<name>", "keyword": "<term>"}}
 
 query_metrics:
-  {"action_type": "query_metrics", "parameters": {"service": "<name>", "metric_name": "<metric>"}}
+{"action_type": "query_metrics", "parameters": {"service": "<name>", "metric_name": "<metric>"}}
 
 fetch_traces:
-  {"action_type": "fetch_traces", "parameters": {"request_id": "<id>"}}
+{"action_type": "fetch_traces", "parameters": {"request_id": "<id>"}}
 
 query_dependencies:
-  {"action_type": "query_dependencies", "parameters": {"service": "<name>"}}
+{"action_type": "query_dependencies", "parameters": {"service": "<name>"}}
 
 submit_diagnosis:
-  {"action_type": "submit_diagnosis", "parameters": {"root_cause_service": "<name>", "cause_type": "<description>"}}
+{"action_type": "submit_diagnosis", "parameters": {"root_cause_service": "<name>", "cause_type": "<description>"}}
 
 Rules:
+- Output ONLY valid JSON. No explanation, no markdown, no extra text.
 - All parameters are required. Missing parameters incur a penalty.
 - metric_name is required for query_metrics.
-- Do not repeat the same call with the same parameters.
-- Call submit_diagnosis only when confident — it ends the episode.
+- Do NOT repeat the same action with the same parameters.
+- Do NOT explore the same service multiple times unless new evidence is required.
+- Avoid unnecessary actions — each step must provide new information.
+- Focus only on the most likely failing service.
+- Call submit_diagnosis as soon as strong evidence is found — do NOT delay.
 
 Strategy:
-1. Read alerts to find affected services.
-2. Use query_dependencies to trace the failure chain.
-3. Use grep_logs and query_metrics on suspicious services.
-4. Submit diagnosis when confident.
+1. Start from alerts and identify the most likely failing service.
+2. Use query_dependencies to trace the failure chain BEFORE diagnosing.
+3. Always follow dependency chain to the downstream service before concluding.
+4. Use grep_logs on the suspected root service to confirm the issue.
+5. Use query_metrics only if logs are unclear.
+6. Use fetch_traces only if dependency relationship is unclear.
+7. Only call submit_diagnosis AFTER confirming root cause from logs or metrics.
+8. Avoid repeated or unnecessary actions, but DO NOT skip investigation steps.
 
 Respond ONLY with JSON. No explanation. Keep output minimal.
 
 Examples:
 {"action_type": "query_dependencies", "parameters": {"service": "api-gateway"}}
 
-{"action_type": "grep_logs", "parameters": {"service": "user-service", "keyword": "timeout"}}"""
+{"action_type": "grep_logs", "parameters": {"service": "user-service", "keyword": "timeout"}}
+"""
 
-
-# ---------------------------------------------------------------------------
-# Custom exception for clean parse-failure signalling
-# ---------------------------------------------------------------------------
 
 class ParseError(ValueError):
-    """Raised when the LLM response cannot be parsed into a valid ActionModel."""
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+    pass
 
 def validate_env() -> None:
     if API_BASE_URL in ("", "base_url"):
@@ -168,24 +145,8 @@ def _call_llm(messages: list[dict]) -> str:
 
 def _parse_action(raw: str) -> ActionModel:
     """
-    Parse the LLM's raw text response into an ActionModel.
-
-    BUG FIX: The original implementation silently returned a hardcoded fallback
-    action (query_dependencies on api-gateway) on ANY parse failure — invalid
-    JSON, unknown action type, empty submit_diagnosis, anything.  This had two
-    serious consequences:
-
-      a) The fallback action was executed as if the model had requested it,
-         adding a spurious step to the history and polluting grading.
-
-      b) Because the exception was swallowed here, the outer loop's error-
-         injection path (the "Previous error: …" system message) was never
-         reached, so the LLM never learned its output was malformed.
-
-    New behaviour: raises ParseError with a descriptive message.  The caller
-    catches ParseError and injects a correction hint into the conversation,
-    giving the model one chance to fix its output.  The step is NOT executed
-    on a parse failure — no history entry, no reward, no grading side-effect.
+    Parse the LLM response into an ActionModel.
+    Raises ParseError if the response is invalid.
     """
     valid_actions = {
         "grep_logs",
@@ -196,8 +157,8 @@ def _parse_action(raw: str) -> ActionModel:
     }
 
     raw = raw.strip()
+    raw = raw.replace("```json", "").replace("```", "")
 
-    # Extract the JSON object from the response.
     start = raw.find("{")
     end   = raw.rfind("}")
     if start == -1 or end == -1:
@@ -244,10 +205,6 @@ def _parse_action(raw: str) -> ActionModel:
     return ActionModel(action_type=action_type, parameters=params)
 
 
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
-
 def main() -> None:
     task = get_task(TASK_ID)
     print(f"[START] task={TASK_ID} env={ENV_NAME} model={MODEL_NAME}")
@@ -276,21 +233,7 @@ def main() -> None:
             reward_val = 0.0
             error_str  = "null"
 
-            # ------------------------------------------------------------------
-            # BUG FIX: Two-phase error handling.
-            #
-            # Phase 1 — LLM call.  Network/rate-limit failures use a safe
-            # fallback action and mark the step accordingly, but do NOT inject
-            # an error message (there is nothing the model can do about a network
-            # error in this step).
-            #
-            # Phase 2 — Parse.  ParseError is caught separately and injected as
-            # a system message so the model can self-correct on the NEXT step.
-            # The step is skipped (no env.step call) — we do NOT execute a
-            # hardcoded action in the model's place.
-            # ------------------------------------------------------------------
-
-            # Phase 1: call the LLM.
+           
             llm_failed   = False
             raw_response = None
             try:
@@ -299,36 +242,15 @@ def main() -> None:
             except Exception as e:
                 llm_failed = True
                 error_str  = f"llm_error: {str(e)[:80]}"
-                # Use a safe no-op fallback only when the LLM itself is unavailable.
                 raw_response = None
 
             if llm_failed:
-                # Network failure — use a conservative fallback, log clearly.
-                action     = ActionModel(
-                    action_type="query_dependencies",
-                    parameters={"service": "api-gateway"},
-                )
-                action_str = _format_action_str(action)
-                obs, reward, done, info = env.step(action)
-                obs_dict   = obs.model_dump()
-                reward_val = getattr(reward, "total", 0.0)
-                actions_taken.append((action.model_dump(), reward.model_dump()))
-                rewards.append(reward_val)
-                print(
-                    f"[STEP] step={step} action={action_str} "
-                    f"reward={reward_val:.2f} done={'true' if done else 'false'} "
-                    f"error={error_str}"
-                )
-                if done:
-                    break
-                continue
+                print(f"[ERROR] LLM failed repeatedly: {error_str}")
+                break
 
-            # Phase 2: parse the LLM response.
             try:
                 action = _parse_action(raw_response)
             except ParseError as pe:
-                # Do NOT execute any action this step.
-                # Inject a correction hint so the LLM can fix its output next turn.
                 hint = str(pe)[:200]
                 messages.append({
                     "role": "system",
@@ -343,10 +265,8 @@ def main() -> None:
                     f"[STEP] step={step} action=parse_failed "
                     f"reward=0.00 done=false error={error_str}"
                 )
-                # Count against the step budget but do not execute in the env.
                 continue
 
-            # Phase 3: execute the action in the environment.
             try:
                 action_str = _format_action_str(action)
                 obs, reward, done, info = env.step(action)

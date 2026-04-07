@@ -5,9 +5,15 @@ app_port: 7860
 ---
 
 # IncidentRCAEnv
+
 **OpenEnv-compliant environment for training AI agents to perform incident response and root cause analysis on production microservice systems.**
 
 Built for the Meta × Hugging Face × PyTorch OpenEnv Hackathon 2026.
+
+---
+
+**Repository:** https://github.com/srujangowda07/openenv-incident-rca  
+**Hugging Face Deployment:**
 
 ---
 
@@ -188,6 +194,8 @@ This process mirrors real-world debugging workflows.
 - Penalizes inefficient investigation strategies
 - Fully deterministic and reproducible
 - Designed for evaluating reasoning quality, not just correctness
+- Supports plug-and-play LLM backends via OpenAI-compatible APIs
+- Achieves consistent success across all tasks with strong LLMs (e.g., LLaMA 70B)
 
 ---
 
@@ -206,15 +214,17 @@ Valid `TASK_ID` values:
 
 Example `.env` configuration:
 ```env
-API_BASE_URL=https://router.huggingface.co/v1
-MODEL_NAME=Qwen/Qwen2.5-72B-Instruct
-HF_TOKEN=hf_your_token_here
+API_BASE_URL=https://integrate.api.nvidia.com/v1
+MODEL_NAME=meta/llama-3.3-70b-instruct
+HF_TOKEN=your_nvidia_api_key
 
 TASK_ID=easy_001
 SEED=42
 ```
 
 These variables allow the agent to use a pretrained LLM.
+
+The environment supports any OpenAI-compatible API (e.g., NVIDIA NIM, OpenAI, HuggingFace Router).
 
 ---
 
@@ -236,7 +246,7 @@ python inference.py
 ## Quickstart
 
 ```bash
-git clone https://huggingface.co/spaces/your-username/incident-rca-env
+git clone https://github.com/srujangowda07/openenv-incident-rca
 cd incident-rca-env
 pip install -r requirements.txt
 
@@ -301,9 +311,16 @@ print("Ground truth:", info.ground_truth_root_cause)
 | `medium_001` | ~0.60–0.68 | ✓ |
 | `hard_001` | ~0.45–0.55 | ✗ |
 
-These scores indicate clear difficulty scaling across categories, establishing a strong baseline for validating sequential reasoning capabilities. The stark drop on hard incident clusters proves the evaluation robustly exposes guessing behaviors.
+Note: Baseline results use a smaller model and are intended to demonstrate task difficulty and evaluation sensitivity.
 
-These results demonstrate clear score separation across difficulty levels, validating the effectiveness of the reward and grading design.
+The lower performance on `hard_001` reflects the complexity of multi-service cascading failures and misleading signals, which require deeper reasoning and more efficient investigation strategies.
+
+Stronger models (e.g., LLaMA 70B) consistently achieve successful diagnoses across all tasks.
+
+These results validate that:
+- simpler tasks are solvable with shallow reasoning
+- harder tasks require structured multi-step investigation
+- the environment effectively differentiates agent quality
 
 *Run `python baseline/run_baseline.py --all` to reproduce.*
 

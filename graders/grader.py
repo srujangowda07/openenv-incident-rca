@@ -49,27 +49,12 @@ class IncidentRCAGrader:
             feedback=self._generate_feedback(breakdown, episode),
         )
 
-    # ------------------------------------------------------------------
-    # Dimension scorers
-    # ------------------------------------------------------------------
-
     def _score_service(self, episode: dict) -> float:
         ground_truth = normalize_service(episode["scenario"]["root_cause"]["service"])
         diagnosed    = normalize_service(episode["final_state"].get("diagnosed_service") or "")
         return self.W_SERVICE if diagnosed == ground_truth else 0.0
 
     def _score_cause_type(self, episode: dict) -> float:
-        """
-        BUG FIX: Old code called normalize_cause_type() on the agent's guess
-        but compared the result against the raw ground-truth string.  This meant
-        that if ground_truth was "connection pool exhausted" and the normaliser
-        returned "connection pool exhausted", the comparison still failed if
-        there was trailing whitespace or capitalisation in the ground-truth field.
-
-        Fix: normalise BOTH sides before comparing.
-        Cause type score is only awarded when the service is also correct
-        (matches openenv.yaml spec: "only awarded if service is also correct").
-        """
         ground_truth_svc   = normalize_service(episode["scenario"]["root_cause"]["service"])
         diagnosed_svc      = normalize_service(episode["final_state"].get("diagnosed_service") or "")
 
@@ -86,11 +71,6 @@ class IncidentRCAGrader:
         return self.W_CAUSE if diagnosed_cause == ground_truth_cause else 0.0
 
     def _score_evidence(self, episode: dict) -> float:
-        """
-        Returns W_EVIDENCE (0.20) if the agent queried the root cause service
-        with at least one tool call before submitting a diagnosis.
-        Accepts both direct service queries and traces that mention the service.
-        """
         ground_truth_svc = normalize_service(episode["scenario"]["root_cause"]["service"])
 
         for entry in episode["final_state"].get("action_history", []):
@@ -115,12 +95,6 @@ class IncidentRCAGrader:
         return 0.0
 
     def _score_penalties(self, episode: dict) -> float:
-        """
-        Deductions:
-          - invalid actions: -0.10 each (W_PENALTY_PER_INVALID)
-          - wrong diagnosis: -0.20 flat (W_PENALTY_WRONG_SERVICE)
-        Returns a negative float (or 0.0 if no penalties apply).
-        """
         penalty = 0.0
 
         invalid = episode["info"].get("invalid_actions", 0)
@@ -133,18 +107,8 @@ class IncidentRCAGrader:
 
         return round(penalty, 4)
 
-    # ------------------------------------------------------------------
-    # Feedback generation
-    # ------------------------------------------------------------------
-
     @staticmethod
     def _generate_feedback(breakdown: dict, episode: dict) -> str:
-        """
-        BUG FIX: Old code used hardcoded 0.5 and 0.3 thresholds to check
-        whether service/cause dimensions were awarded, but those magic numbers
-        were copies of the weight constants.  Using the class constants directly
-        (or checking > 0) is explicit and won't silently drift if weights change.
-        """
         rca   = episode["scenario"]["root_cause"]
         lines = []
 

@@ -73,7 +73,7 @@ class TestEnvAPI:
         assert done
 
 
-# ── Action Tests ───────────────────────────────────────────────
+# Action Tests 
 
 class TestActions:
 
@@ -160,11 +160,9 @@ class TestActions:
             parameters={"service": "postgres-primary"},   # metric_name missing
         )
         _, reward, _, _ = env.step(action)
-        # Missing required param → invalid action → -0.10 - 0.01 (step) = -0.11
         assert reward.total < 0.0
 
     def test_query_metrics_with_metric_name_succeeds(self):
-        """query_metrics with both required params returns metrics and positive reward."""
         env = IncidentRCAEnv(task_id="easy_001", seed=42)
         env.reset()
         action = ActionModel(
@@ -177,7 +175,6 @@ class TestActions:
         obs, reward, _, _ = env.step(action)
         assert obs.tool_result is not None
         assert "metrics" in obs.tool_result
-        # postgres-primary is in cascade → +0.05 - 0.01 (step) = +0.04
         assert reward.total >= 0.0
 
     def test_repeated_action_gives_penalty(self):
@@ -189,8 +186,6 @@ class TestActions:
         )
         _, reward1, _, _ = env.step(action)
         _, reward2, _, _ = env.step(action)  # exact duplicate
-        # First call: +0.05 - 0.01 = +0.04 (cascade service)
-        # Second call: -0.10 - 0.01 = -0.11 (repeated action penalty)
         assert reward1.total > reward2.total
 
     def test_invalid_service_gives_penalty(self):
@@ -213,7 +208,6 @@ class TestActions:
         obs, reward, _, _ = env.step(action)
         assert obs.tool_result is not None
         assert "trace" in obs.tool_result
-        # Trace implicates root cause → +0.10 - 0.01 = +0.09
         assert reward.total > 0.0
 
     def test_fetch_traces_with_invalid_id_gives_penalty(self):
@@ -227,7 +221,7 @@ class TestActions:
         assert reward.total < 0.0
 
 
-# ── Grader Tests ───────────────────────────────────────────────
+# Grader Tests
 
 class TestGrader:
 
@@ -240,7 +234,6 @@ class TestGrader:
 
         action_history = []
         if queried_root_cause:
-            # Evidence: agent queried the root cause service
             action_history.append({
                 "action": "grep_logs",
                 "parameters": {"service": root_cause_svc, "keyword": "error"},
@@ -282,7 +275,6 @@ class TestGrader:
 
     def test_perfect_score_correct_answer(self):
         grader = IncidentRCAGrader()
-        # easy_001: postgres-primary, connection pool exhausted
         episode = self._make_episode(
             "easy_001",
             diagnosed_svc="postgres-primary",
@@ -298,12 +290,11 @@ class TestGrader:
         grader = IncidentRCAGrader()
         episode = self._make_episode(
             "easy_001",
-            diagnosed_svc="api-gateway",          # wrong — victim not root cause
+            diagnosed_svc="api-gateway",          
             diagnosed_cause="unknown",
             queried_root_cause=False,
         )
         result = grader.grade(episode)
-        # 0.0 (service) + 0.0 (cause, blocked) + 0.0 (no evidence) - 0.20 (wrong diag) = -0.20 → 0.0
         assert result.score < 0.50
         assert not result.passed
 
@@ -312,10 +303,9 @@ class TestGrader:
         episode = self._make_episode(
             "easy_001",
             diagnosed_svc="postgres-primary",
-            diagnosed_cause="wrong cause type",   # service right, cause wrong
+            diagnosed_cause="wrong cause type",     
         )
         result = grader.grade(episode)
-        # 0.50 (service) + 0.0 (cause) + 0.20 (evidence) = 0.70
         assert 0.60 <= result.score < 1.00
 
     def test_invalid_actions_penalizes_score(self):
@@ -355,7 +345,7 @@ class TestGrader:
         assert r_without.breakdown["tool_evidence"] == 0.0
 
 
-# ── Task Definition Tests ──────────────────────────────────────
+# Task Definition Tests
 
 class TestTasks:
 
@@ -384,7 +374,7 @@ class TestTasks:
             assert obs.task_id == task_id
 
 
-# ── Determinism Tests ──────────────────────────────────────────
+# Determinism Tests
 
 class TestDeterminism:
 

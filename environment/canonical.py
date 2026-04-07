@@ -10,17 +10,6 @@ class CauseType(str, enum.Enum):
     SPLIT_BRAIN = "cluster split-brain 2 nodes network partition"
 
 
-# BUG FIX 1: Multi-word phrases scored as single units prevent false positives.
-# Old code used single-word keywords like "split" and "brain" separately — a
-# response saying "this is NOT a split brain" would still score 2 points for
-# SPLIT_BRAIN because both words appear independently. Phrases like
-# "split-brain" or "split brain" are now matched as atomic units.
-#
-# BUG FIX 2: Priority ordering added. When two cause types tie on score, the
-# old code returned whichever Python dict iteration yielded first — technically
-# non-deterministic across Python versions and insertion order. We now break
-# ties by enum declaration order (explicit priority), making the result fully
-# deterministic regardless of input verbosity.
 
 CAUSE_MAPPINGS: dict[CauseType, list[str]] = {
     CauseType.CONNECTION_POOL_EXHAUSTED: [
@@ -67,7 +56,6 @@ CAUSE_MAPPINGS: dict[CauseType, list[str]] = {
     ],
 }
 
-# Explicit priority order used as a tiebreaker — lower index wins.
 _PRIORITY_ORDER: list[CauseType] = [
     CauseType.CONNECTION_POOL_EXHAUSTED,
     CauseType.MEMORY_LEAK_OOM,
@@ -92,23 +80,16 @@ def normalize_cause_type(raw_input: str) -> str:
     """
     raw_lower = raw_input.lower().strip()
 
-    # 1. Direct exact match.
     for ct in CauseType:
         if ct.value == raw_lower:
             return ct.value
-
-    # 2. Phrase scoring with deterministic tiebreaking.
     scores: dict[CauseType, int] = {ct: 0 for ct in CauseType}
     for ct, phrases in CAUSE_MAPPINGS.items():
         scores[ct] = sum(1 for phrase in phrases if phrase in raw_lower)
 
     best_score = max(scores.values())
     if best_score == 0:
-        # No recognisable phrase found — return raw so the grader can log it.
         return raw_input
-
-    # Among all types that achieved best_score, pick the one with lowest
-    # priority index (most specific / most expected match for the scenario set).
     candidates = [ct for ct in _PRIORITY_ORDER if scores[ct] == best_score]
     return candidates[0].value
 
