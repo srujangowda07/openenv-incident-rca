@@ -8,7 +8,7 @@ description: >
   incident response and root cause analysis on production microservice systems.
   Agents diagnose cascading failures from logs, metrics, traces, and service maps.
 
-author: "Your Name"
+author: "Srujan Gowda"
 tags:
   - openenv
   - devops

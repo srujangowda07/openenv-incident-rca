@@ -4,6 +4,8 @@ import os
 import sys
 import time
 from pathlib import Path
+from dotenv import load_dotenv
+load_dotenv()
 
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -77,8 +79,9 @@ def build_user_prompt(obs: dict, step: int) -> str:
 What is your next action? Respond with JSON only."""
 
 
-def call_llm(messages: list[dict], model: str = "gpt-4o") -> str:
+def call_llm(messages: list[dict], model: str = None) -> str:
     """Call OpenAI API. Returns raw response text."""
+    model = model or os.environ.get("MODEL_NAME", "meta/llama-3.3-70b-instruct")
     try:
         import openai
     except ImportError:
@@ -94,7 +97,7 @@ def call_llm(messages: list[dict], model: str = "gpt-4o") -> str:
         model=model,
         messages=messages,
         temperature=0.1,
-        max_tokens=300,
+        max_tokens=120,
         response_format={"type": "json_object"},
     )
     return response.choices[0].message.content
@@ -114,7 +117,7 @@ def parse_action(raw: str) -> ActionModel:
         )
 
 
-def run_episode(task_id: str, model: str = "gpt-4o", seed: int = 42,
+def run_episode(task_id: str, model: str = None, seed: int = 42,
                 verbose: bool = True) -> dict:
     task = get_task(task_id)
 
@@ -147,6 +150,16 @@ def run_episode(task_id: str, model: str = "gpt-4o", seed: int = 42,
             messages.append({"role": "assistant", "content": raw_response})
         except Exception as e:
             print(f"LLM error: {e}")
+
+            action = ActionModel(
+                action_type="submit_diagnosis",
+                parameters={
+                    "root_cause_service": "unknown",
+                    "cause_type": "llm_failure"
+                }
+            )
+
+            obs, reward, done, info = env.step(action)
             break
 
         action = parse_action(raw_response)
@@ -175,15 +188,17 @@ def run_episode(task_id: str, model: str = "gpt-4o", seed: int = 42,
     final_state = env.state()
 
     if verbose:
-        rca = env._scenario["root_cause"]
-        print(f"\n  Ground truth: {rca['service']} — {rca['cause_type']}")
-        print(f"  Agent diagnosed: {final_state.get('diagnosed_service', 'None')}")
+        print(f"\n  Agent diagnosed: {final_state.get('diagnosed_service', 'None')}")
+
+    root_cause = {}
+    if info is not None:
+        root_cause = info.model_dump().get("ground_truth_root_cause") or {}
 
     return {
         "task_id": task_id,
         "model": model,
         "seed": seed,
-        "scenario": env._scenario,
+        "scenario": {"root_cause": root_cause},
         "actions_taken": actions_taken,
         "final_state": final_state,
         "info": info.model_dump(),
@@ -217,7 +232,7 @@ def grade_episode(episode: dict, verbose: bool = True) -> dict:
     }
 
 
-def run_all_tasks(model: str = "gpt-4o", seed: int = 42) -> dict:
+def run_all_tasks(model: str = None, seed: int = 42) -> dict:
     results = {}
     for task_id in TASKS:
         episode = run_episode(task_id, model=model, seed=seed)
@@ -271,7 +286,7 @@ def _run_dry(task_id: str):
             action_type="submit_diagnosis",
             parameters={
                 "root_cause_service": "postgres-primary",
-                "cause_type": "connection pool exhausted",
+                "cause_type": "unknown",
             },
         ),
     ]
@@ -291,11 +306,15 @@ def _run_dry(task_id: str):
         print("  [WARN] No steps taken — episode may have ended immediately.")
         return
 
+    root_cause = {}
+    if info is not None:
+        root_cause = info.model_dump().get("ground_truth_root_cause") or {}
+
     episode = {
         "task_id": task_id,
         "model": "dry-run-scripted",
         "seed": 42,
-        "scenario": env._scenario,
+        "scenario": {"root_cause": root_cause},
         "actions_taken": actions_taken,
         "final_state": env.state(),
         "info": info.model_dump(),
@@ -317,8 +336,8 @@ def main():
         help="Run all tasks and produce full baseline report",
     )
     parser.add_argument(
-        "--model", type=str, default="gpt-4o",
-        help="OpenAI model to use (default: gpt-4o)",
+        "--model", type=str, default=os.environ.get("MODEL_NAME", "meta/llama-3.3-70b-instruct"),
+        help="OpenAI model to use",
     )
     parser.add_argument(
         "--seed", type=int, default=42,

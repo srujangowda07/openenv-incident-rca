@@ -26,6 +26,7 @@ class RewardShaper:
         self.dependency_graph = scenario.get("dependency_graph", {})
 
         self.rewarded_services: set[str] = set()
+        self.exploration_rewards_count = 0
 
     def _evaluate_service_progress(
         self, service: str, action: str
@@ -66,9 +67,11 @@ class RewardShaper:
                     v = REWARD_TABLE["reaching_root"]
                     return v, {"fetch_traces": v}, f"trace reached root cause service: {rca_norm}"
 
-            # Root cause service implicated but already rewarded — still useful.
-            v = REWARD_TABLE["useful_exploration"]
-            return v, {"fetch_traces": v}, "trace implicates root cause (already visited)"
+            if self.exploration_rewards_count < 2:
+                self.exploration_rewards_count += 1
+                v = REWARD_TABLE["useful_exploration"]
+                return v, {"fetch_traces": v}, "trace implicates root cause (already visited)"
+            return 0.0, {"fetch_traces": 0.0}, "trace implicates root cause but exploration reward capped"
 
         v = REWARD_TABLE["wrong_direction"]
         return v, {"fetch_traces": v}, "trace does not implicate root cause"

@@ -13,6 +13,15 @@ app = FastAPI(
     version="1.0.0",
 )
 
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 _sessions: dict[str, IncidentRCAEnv] = {}
 _episodes: dict[str, dict] = {}
 
@@ -43,7 +52,14 @@ def get_tasks(difficulty: str | None = None):
 
 @app.post("/reset")
 def reset(req: ResetRequest):
-    session_id = str(uuid.uuid4())[:8]
+    session_id = str(uuid.uuid4())
+    
+    # Cap active sessions to prevent production memory leaks
+    if len(_sessions) > 1000:
+        oldest_session = list(_sessions.keys())[0]
+        _sessions.pop(oldest_session, None)
+        _episodes.pop(oldest_session, None)
+
     env = IncidentRCAEnv(task_id=req.task_id, seed=req.seed)
     obs = env.reset()
     _sessions[session_id] = env
@@ -67,13 +83,12 @@ def step(req: StepRequest):
 
     obs, reward, done, info = env.step(action)
     ep = _episodes[req.session_id]
-    ep["actions_taken"].append((req.action, reward.model_dump()))
+    ep["actions_taken"].append((action.model_dump(), reward.model_dump()))
 
     if done:
         ep["final_state"] = env.state()
         ep["info"] = info.model_dump()
-        ep["scenario"] = env._scenario
-
+        
     return {
         "session_id": req.session_id,
         "observation": obs.model_dump(),

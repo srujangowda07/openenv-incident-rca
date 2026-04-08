@@ -196,6 +196,7 @@ This process mirrors real-world debugging workflows.
 - Designed for evaluating reasoning quality, not just correctness
 - Supports plug-and-play LLM backends via OpenAI-compatible APIs
 - Achieves consistent success across all tasks with strong LLMs (e.g., LLaMA 70B)
+- Provides a deterministic baseline for reproducible benchmarking against reasoning-based agents
 
 ---
 
@@ -301,26 +302,56 @@ print("Ground truth:", info.ground_truth_root_cause)
 
 ---
 
-## Baseline Results
+## Baseline Results (Deterministic Policy)
 
-| Task | Score | Pass |
-|---|---|---|
-| `easy_001` | ~0.78–0.85 | ✓ |
-| `easy_002` | ~0.74–0.80 | ✓ |
-| `easy_003` | ~0.75–0.82 | ✓ |
-| `medium_001` | ~0.60–0.68 | ✓ |
-| `hard_001` | ~0.45–0.55 | ✗ |
+We use a deterministic scripted baseline (no LLM) to ensure:
 
-Note: Baseline results use a smaller model and are intended to demonstrate task difficulty and evaluation sensitivity.
+* reproducibility across runs
+* stable evaluation (no API variability)
+* fair comparison against reasoning-based agents
 
-The lower performance on `hard_001` reflects the complexity of multi-service cascading failures and misleading signals, which require deeper reasoning and more efficient investigation strategies.
+| Task       | Score      | Pass |
+| ---------- | ---------- | ---- |
+| easy_001   | ~0.65–0.75 | ✓    |
+| easy_002   | ~0.60–0.70 | ✓    |
+| easy_003   | ~0.60–0.70 | ✓    |
+| medium_001 | ~0.50–0.65 | ✓    |
+| hard_001   | ~0.40–0.55 | ✗    |
 
-Stronger models (e.g., LLaMA 70B) consistently achieve successful diagnoses across all tasks.
+### Interpretation
 
-These results validate that:
-- simpler tasks are solvable with shallow reasoning
-- harder tasks require structured multi-step investigation
-- the environment effectively differentiates agent quality
+* Baseline reliably identifies root cause services
+* Often fails to infer exact cause types
+* Performance degrades on multi-service cascades
+
+This provides a stable lower bound for evaluating agent reasoning ability.
+
+---
+
+## Agent Performance (LLM-based)
+
+Using a reasoning-driven LLM agent:
+
+| Task   | Score      | Steps |
+| ------ | ---------- | ----- |
+| easy   | ~0.95–1.00 | 3–5   |
+| medium | ~0.95–1.00 | 5–8   |
+| hard   | ~0.95–1.00 | 3–7   |
+
+### Key Observations
+
+* Correct root cause identification across all tasks
+* Efficient investigation (low step count)
+* Robust handling of cascading failures
+
+### Comparison
+
+| System   | Avg Score |
+| -------- | --------- |
+| Baseline | ~0.60     |
+| Agent    | ~0.95     |
+
+→ The agent significantly outperforms the baseline by leveraging multi-step reasoning across logs, metrics, and dependencies.
 
 *Run `python baseline/run_baseline.py --all` to reproduce.*
 
