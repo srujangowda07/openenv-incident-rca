@@ -4,6 +4,8 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 from fastapi import Body
+from fastapi import Request
+
 
 from environment.env import IncidentRCAEnv, ActionModel
 from graders.grader import IncidentRCAGrader
@@ -74,13 +76,26 @@ def get_tasks(difficulty: str | None = None):
     return {"tasks": list_tasks(difficulty)}
 
 
+
 @app.post("/reset")
-def reset(req: Optional[ResetRequest] = Body(default=None)):
-    if req is None:
+async def reset(request: Request):
+    body_bytes = await request.body()
+
+    if not body_bytes:
         req = ResetRequest()
+    else:
+        try:
+            import json
+            body = json.loads(body_bytes)
+            if body is None:
+                req = ResetRequest()
+            else:
+                req = ResetRequest(**body)
+        except:
+            req = ResetRequest()
     session_id = str(uuid.uuid4())
-    
-    # Cap active sessions to prevent production memory leaks
+
+    # Cap active sessions
     if len(_sessions) > 1000:
         oldest_session = list(_sessions.keys())[0]
         _sessions.pop(oldest_session, None)
@@ -88,13 +103,18 @@ def reset(req: Optional[ResetRequest] = Body(default=None)):
 
     env = IncidentRCAEnv(task_id=req.task_id, seed=req.seed)
     obs = env.reset()
+
     _sessions[session_id] = env
     _episodes[session_id] = {
         "task_id": req.task_id,
         "actions_taken": [],
         "max_steps": env.max_steps,
     }
-    return {"session_id": session_id, "observation": obs.model_dump()}
+
+    return {
+        "session_id": session_id,
+        "observation": obs.model_dump()
+    }
 
 
 @app.post("/step")
