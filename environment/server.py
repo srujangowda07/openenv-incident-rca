@@ -73,7 +73,9 @@ def get_tasks(difficulty: str | None = None):
 
 
 @app.post("/reset")
-def reset(req: ResetRequest):
+def reset(req: ResetRequest | None = None):
+    if req is None:
+        req = ResetRequest()
     session_id = str(uuid.uuid4())
     
     # Cap active sessions to prevent production memory leaks
