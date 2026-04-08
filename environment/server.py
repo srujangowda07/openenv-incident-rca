@@ -8,8 +8,8 @@ from graders.grader import IncidentRCAGrader
 from tasks.task_definitions import TASKS, list_tasks
 
 app = FastAPI(
-    title="IncidentRCAEnv",
-    description="OpenEnv environment for incident response root cause analysis",
+    title="Incident RCA Environment",
+    description="Deterministic RL environment for debugging production incidents using logs, metrics, and traces",
     version="1.0.0",
 )
 
@@ -44,6 +44,28 @@ class GradeRequest(BaseModel):
 def health():
     return {"status": "ok", "active_sessions": len(_sessions)}
 
+@app.get("/")
+def root():
+    return {
+        "project": "Incident RCA Environment",
+        "status": "running",
+        "description": "Deterministic RL environment for debugging production incidents (logs, metrics, traces)",
+        "how_it_works": [
+            "1. POST /reset → start new investigation",
+            "2. POST /step → interact with environment",
+            "3. POST /grade → evaluate final diagnosis"
+        ],
+        "endpoints": {
+            "health": "/health",
+            "tasks": "/tasks",
+            "reset": "/reset",
+            "step": "/step",
+            "state": "/state/{session_id}",
+            "grade": "/grade",
+            "close": "/session/{session_id}",
+            "docs": "/docs"
+        }
+    }
 
 @app.get("/tasks")
 def get_tasks(difficulty: str | None = None):
@@ -88,7 +110,7 @@ def step(req: StepRequest):
     if done:
         ep["final_state"] = env.state()
         ep["info"] = info.model_dump()
-        
+
     return {
         "session_id": req.session_id,
         "observation": obs.model_dump(),
