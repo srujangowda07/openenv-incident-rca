@@ -2,9 +2,8 @@ import uuid
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import Optional
 from fastapi import Body
-from fastapi import Request
+from typing import Dict, Any
 
 
 from environment.env import IncidentRCAEnv, ActionModel
@@ -77,25 +76,20 @@ def get_tasks(difficulty: str | None = None):
 
 
 
-@app.post("/reset")
-async def reset(request: Request):
-    body_bytes = await request.body()
 
-    if not body_bytes:
-        req = ResetRequest()
-    else:
-        try:
-            import json
-            body = json.loads(body_bytes)
-            if body is None:
-                req = ResetRequest()
-            else:
-                req = ResetRequest(**body)
-        except:
-            req = ResetRequest()
+
+@app.post("/reset")
+async def reset(payload: Dict[str, Any] = Body(default={})):
+    if payload is None:
+        payload = {}
+
+    req = ResetRequest(
+        task_id=payload.get("task_id", "easy_001"),
+        seed=payload.get("seed")
+    )
+
     session_id = str(uuid.uuid4())
 
-    # Cap active sessions
     if len(_sessions) > 1000:
         oldest_session = list(_sessions.keys())[0]
         _sessions.pop(oldest_session, None)
