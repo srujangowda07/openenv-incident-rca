@@ -10,10 +10,12 @@ app_port: 7860
 
 Built for the Meta × Hugging Face × PyTorch OpenEnv Hackathon 2026.
 
+Try it live: https://srujan0001-incident-rca-env.hf.space/docs
+
 ---
 
 **Repository:** https://github.com/srujangowda07/openenv-incident-rca  
-**Hugging Face Deployment:**
+**Hugging Face Deployment:** https://srujan0001-incident-rca-env.hf.space
 
 ---
 
