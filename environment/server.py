@@ -2,6 +2,8 @@ import uuid
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from typing import Optional
+from fastapi import Body
 
 from environment.env import IncidentRCAEnv, ActionModel
 from graders.grader import IncidentRCAGrader
@@ -73,7 +75,7 @@ def get_tasks(difficulty: str | None = None):
 
 
 @app.post("/reset")
-def reset(req: ResetRequest | None = None):
+def reset(req: Optional[ResetRequest] = Body(default=None)):
     if req is None:
         req = ResetRequest()
     session_id = str(uuid.uuid4())
